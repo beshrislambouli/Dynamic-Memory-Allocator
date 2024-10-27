@@ -38,6 +38,9 @@
 // check - This checks our invariant that the size_t header before every
 // block points to either the beginning of the next block, or the end of the
 // heap.
+
+#define NUM_BINS 26
+
 int my_check() {
   char* p;
   char* lo = (char*)mem_heap_lo();
@@ -63,14 +66,16 @@ typedef struct node {
   struct node *next;
 } node;
 
-struct node *freelist;
+struct node *freelists[NUM_BINS];
 
 
 // init - Initialize the malloc package.  Called once before any other
 // calls are made.  Since this is a very simple implementation, we just
 // return success.
-int my_init() {   
-  freelist = NULL;
+int my_init() {
+  for (int i = 0; i < NUM_BINS; i++) {
+    freelists[i] = NULL;
+  }
   return 0; 
 }
 
@@ -82,34 +87,23 @@ void* my_malloc(size_t size) {
   // one example of a place where this can come in handy.
   int aligned_size = ALIGN(size + SIZE_T_SIZE);
 
+  size_t index = 0;
+  int power = 1;
+  while (power < aligned_size) {
+    power *= 2;
+    index++;
+  }
+  node* freelist = freelists[index];
+
   // Expands the heap by the given number of bytes and returns a pointer to
   // the newly-allocated area.  This is a slow call, so you will want to
   // make sure you don't wind up calling it on every malloc.
 
   if (freelist) {
-    node* cur = freelist;
-    node* prv = NULL;
-    int mn = 1e9;
-    node* best = NULL;
-    node* best_prv = NULL;
-
-    while (cur != NULL) {
-      int cur_sz = *(size_t*)((char*)cur - SIZE_T_SIZE) ;
-      if (cur_sz >= aligned_size && cur_sz < mn) {
-        cur_sz = mn;
-        best = cur;
-        best_prv = prv;
-      }
-      prv = cur;
-      cur = cur->next;
-    }
-    if (best) {
-
-      if (best_prv) best_prv -> next = best ->next;
-      else freelist = best->next;
-  
-      return (void*)(best);
-    }
+    node *r;
+    r = freelist;
+    freelist = r->next;
+    return (void*)r;
   }
 
   void* p = mem_sbrk(aligned_size);
@@ -117,13 +111,11 @@ void* my_malloc(size_t size) {
   if (p == (void*)-1) {
     // Whoops, an error of some sort occurred.  We return NULL to let
     // the client code know that we weren't able to allocate memory.
-    size_t sz = mem_heapsize();
-    printf ("chris %ld\n",sz);
     return NULL;
   } else {
     // We store the size of the block we've allocated in the first
     // SIZE_T_SIZE bytes.
-    *(size_t*)p = size;
+    *(size_t*)p = index;
 
     // Then, we return a pointer to the rest of the block of memory,
     // which is at least size bytes long.  We have to cast to uint8_t
@@ -137,9 +129,11 @@ void* my_malloc(size_t size) {
 
 // free - Freeing a block does nothing.
 void my_free(void* p) {
-  struct node* r = (struct node*)p;
-  r->next = freelist;
-  freelist = r ;
+  size_t index = *(size_t*)((char*)p - SIZE_T_SIZE);
+  node* free_list = freelists[index];
+  node* r = (node*)p;
+  r->next = free_list;
+  free_list = r;
 }
 
 // realloc - Implemented simply in terms of malloc and free
