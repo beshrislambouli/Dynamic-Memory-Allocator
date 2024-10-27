@@ -93,6 +93,15 @@ void* my_malloc(size_t size) {
     power *= 2;
     index++;
   }
+  for (size_t i = index; i < index + 5; i++) {
+    if (i >= NUM_BINS) {
+      break;
+    }
+    if (freelists[i] != NULL) {
+      index = i;
+      break;
+    }
+  }
   node* freelist = freelists[index];
 
   // Expands the heap by the given number of bytes and returns a pointer to
