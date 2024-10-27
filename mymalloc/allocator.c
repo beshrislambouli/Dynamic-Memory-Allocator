@@ -59,10 +59,20 @@ int my_check() {
   return 0;
 }
 
+typedef struct node {
+  struct node *next;
+} node;
+
+struct node *freelist;
+
+
 // init - Initialize the malloc package.  Called once before any other
 // calls are made.  Since this is a very simple implementation, we just
 // return success.
-int my_init() { return 0; }
+int my_init() {   
+  freelist = NULL;
+  return 0; 
+}
 
 //  malloc - Allocate a block by incrementing the brk pointer.
 //  Always allocate a block whose size is a multiple of the alignment.
@@ -75,11 +85,40 @@ void* my_malloc(size_t size) {
   // Expands the heap by the given number of bytes and returns a pointer to
   // the newly-allocated area.  This is a slow call, so you will want to
   // make sure you don't wind up calling it on every malloc.
+
+  if (freelist) {
+    node* cur = freelist;
+    node* prv = NULL;
+    int mn = 1e9;
+    node* best = NULL;
+    node* best_prv = NULL;
+
+    while (cur != NULL) {
+      int cur_sz = *(size_t*)((char*)cur - SIZE_T_SIZE) ;
+      if (cur_sz >= aligned_size && cur_sz < mn) {
+        cur_sz = mn;
+        best = cur;
+        best_prv = prv;
+      }
+      prv = cur;
+      cur = cur->next;
+    }
+    if (best) {
+
+      if (best_prv) best_prv -> next = best ->next;
+      else freelist = best->next;
+  
+      return (void*)(best);
+    }
+  }
+
   void* p = mem_sbrk(aligned_size);
 
   if (p == (void*)-1) {
     // Whoops, an error of some sort occurred.  We return NULL to let
     // the client code know that we weren't able to allocate memory.
+    size_t sz = mem_heapsize();
+    printf ("chris %ld\n",sz);
     return NULL;
   } else {
     // We store the size of the block we've allocated in the first
@@ -97,7 +136,11 @@ void* my_malloc(size_t size) {
 }
 
 // free - Freeing a block does nothing.
-void my_free(void* ptr) {}
+void my_free(void* p) {
+  struct node* r = (struct node*)p;
+  r->next = freelist;
+  freelist = r ;
+}
 
 // realloc - Implemented simply in terms of malloc and free
 void* my_realloc(void* ptr, size_t size) {
