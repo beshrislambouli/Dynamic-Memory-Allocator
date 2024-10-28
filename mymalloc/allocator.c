@@ -79,8 +79,79 @@ int my_init() {
   return 0; 
 }
 
-//  malloc - Allocate a block by incrementing the brk pointer.
-//  Always allocate a block whose size is a multiple of the alignment.
+// //  malloc - Allocate a block by incrementing the brk pointer.
+// //  Always allocate a block whose size is a multiple of the alignment.
+// void* my_malloc(size_t size) {
+//   // We allocate a little bit of extra memory so that we can store the
+//   // size of the block we've allocated.  Take a look at realloc to see
+//   // one example of a place where this can come in handy.
+//   int aligned_size = ALIGN(size + SIZE_T_SIZE);
+
+//   size_t index = 0;
+//   int power = 1;
+//   while (power < aligned_size) {
+//     power *= 2;
+//     index++;
+//   }
+//   size_t goal = index;
+//   while (index < NUM_BINS && freelists [index] == NULL) {
+//     index ++;
+//   }
+
+//   if (index < NUM_BINS) {
+//     // printf ("here  ewrfgergoerngoierjgioerjg\n");
+//     node* block = freelists[index];
+//     freelists[index] = block->next;
+//     node* ans = NULL;
+    
+//     ans = block;
+//     *(size_t*)((char*)ans - SIZE_T_SIZE) = goal;
+//     block = ((char*)block + (1<<goal));
+
+//     for (int i = goal ; i < index ; i ++ ) {
+//       *(size_t*)((char*)block - SIZE_T_SIZE) = i;
+//       block = ((char*)block + (1<<i));
+//     }
+
+//     return (void*)ans;
+//   }
+  
+  
+
+//   // Expands the heap by the given number of bytes and returns a pointer to
+//   // the newly-allocated area.  This is a slow call, so you will want to
+//   // make sure you don't wind up calling it on every malloc.
+
+
+//   void* p = mem_sbrk((1<<goal));
+
+//   if (p == (void*)-1) {
+//     // Whoops, an error of some sort occurred.  We return NULL to let
+//     // the client code know that we weren't able to allocate memory.
+//     return NULL;
+//   } else {
+//     // We store the size of the block we've allocated in the first
+//     // SIZE_T_SIZE bytes.
+//     *(size_t*)p = goal;
+
+//     // Then, we return a pointer to the rest of the block of memory,
+//     // which is at least size bytes long.  We have to cast to uint8_t
+//     // before we try any pointer arithmetic because voids have no size
+//     // and so the compiler doesn't know how far to move the pointer.
+//     // Since a uint8_t is always one byte, adding SIZE_T_SIZE after
+//     // casting advances the pointer by SIZE_T_SIZE bytes.
+//     return (void*)((char*)p + SIZE_T_SIZE);
+//   }
+// }
+
+// // free - Freeing a block does nothing.
+// void my_free(void* p) {
+//   size_t index = *(size_t*)((char*)p - SIZE_T_SIZE);
+//   node* r = (node*)p;
+//   r->next = freelists[index];
+//   freelists[index] = r;
+// }
+
 void* my_malloc(size_t size) {
   // We allocate a little bit of extra memory so that we can store the
   // size of the block we've allocated.  Take a look at realloc to see
@@ -93,29 +164,20 @@ void* my_malloc(size_t size) {
     power *= 2;
     index++;
   }
-  for (size_t i = index; i < index + 5; i++) {
-    if (i >= NUM_BINS) {
-      break;
-    }
-    if (freelists[i] != NULL) {
-      index = i;
-      break;
-    }
-  }
-  node* freelist = freelists[index];
+
 
   // Expands the heap by the given number of bytes and returns a pointer to
   // the newly-allocated area.  This is a slow call, so you will want to
   // make sure you don't wind up calling it on every malloc.
 
-  if (freelist) {
+  if (freelists[index]) {
     node *r;
-    r = freelist;
-    freelist = r->next;
+    r = freelists[index];
+    freelists[index] = r->next;
     return (void*)r;
   }
 
-  void* p = mem_sbrk(aligned_size);
+  void* p = mem_sbrk((1<<index));
 
   if (p == (void*)-1) {
     // Whoops, an error of some sort occurred.  We return NULL to let
@@ -139,10 +201,9 @@ void* my_malloc(size_t size) {
 // free - Freeing a block does nothing.
 void my_free(void* p) {
   size_t index = *(size_t*)((char*)p - SIZE_T_SIZE);
-  node* free_list = freelists[index];
   node* r = (node*)p;
-  r->next = free_list;
-  free_list = r;
+  r->next = freelists[index];
+  freelists[index] = r;
 }
 
 // realloc - Implemented simply in terms of malloc and free
