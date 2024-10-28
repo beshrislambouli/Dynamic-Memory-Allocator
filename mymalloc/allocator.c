@@ -150,21 +150,28 @@ void* my_malloc(size_t size) {
 // free - Freeing a block does nothing.
 void my_free(void* p) {
   size_t index = *(size_t*)((char*)p - SIZE_T_SIZE);
-  node* goal = (node*)((char*)p + (1 << index));
-  node* cur = freelists[index];
-  node* prev = NULL;
-  while (cur != NULL) {
-    if (cur == goal) {
-      if (prev == NULL) {
-        freelists[index] = cur->next;
-      } else {
-        prev->next = cur->next;
+  
+  while (1) {
+    int found = 0;
+    node* goal = (node*)((char*)p + (1 << index));
+    node* cur = freelists[index];
+    node* prev = NULL;
+    while (cur != NULL) {
+      if (cur == goal) {
+        if (prev == NULL) {
+          freelists[index] = cur->next;
+        } else {
+          prev->next = cur->next;
+        }
+        index++;
+        found = 1;
+        break;
       }
-      index++;
-      break;
+      prev = cur;
+      cur = cur->next;
     }
-    prev = cur;
-    cur = cur->next;
+    if (!found)
+      break;
   }
   *(size_t*)((char*)p - SIZE_T_SIZE) = index;
   node* r = (node*)p;
