@@ -39,7 +39,7 @@
 // block points to either the beginning of the next block, or the end of the
 // heap.
 
-#define NUM_BINS 26
+#define NUM_BINS 27
 #define CODE 1
 
 int my_check() {
@@ -126,15 +126,12 @@ void* my_malloc(size_t size) {
 
   if (index < NUM_BINS) {
     node* block = freelists[index];
-    freelists[index] = block->next;
-    node* ans = NULL;
-    
-    ans = block;
+    node* ans = block;
+    del (freelists[index],index);
     *(size_t*)((char*)ans - SIZE_T_SIZE) = goal;
-    *((size_t*)((char*)ans - SIZE_T_SIZE) + 1) = 0 ;
+    
 
     block = ((char*)block + (1<<goal));
-
     for (int i = goal ; i < index ; i ++ ) {
       ins ((void*)block,i);
       block = ((char*)block + (1<<i));
@@ -172,48 +169,31 @@ void* my_malloc(size_t size) {
   }
 }
 
-// free - Freeing a block does nothing.
 void my_free(void* p) {
-  size_t index = *(size_t*)((char*)p - SIZE_T_SIZE);
   
+  node* cur = (node*)p;
+  size_t index = *(size_t*)((char*)cur - SIZE_T_SIZE);
+  int Tot = (1<<index);
   while (1) {
-    if (((char*)p + (1 << index)) > mem_heap_hi()) break;
-    node* goal = (node*)((char*)p + (1 << index));
-    if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == 1 && *((size_t*)((char*)goal - SIZE_T_SIZE)) == index ) {
+    if (((char*)cur + Tot) > mem_heap_hi()) break;
+
+    node* goal = (node*)((char*)cur + Tot);
+    if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == CODE) {
+      index = *((size_t*)((char*)goal - SIZE_T_SIZE));
       del (goal,index);
-      index ++;
+      Tot += (1<<index);
     }
     else break;
   }
 
-  ins (p,index);
+  for (int i = 0 ; i < NUM_BINS ; i ++ ) {
+    if ( (Tot & (1<<i)) ) {
+      ins (p,i);
+      p = (char*)p + (1<<i);
+    }
+  }
+  
 }
-
-// void my_free(void* p) {
-  
-//   node* cur = (node*)p;
-//   size_t index = *(size_t*)((char*)cur - SIZE_T_SIZE);
-//   int Tot = (1<<index);
-//   while (1) {
-//     if (((char*)cur + Tot) > mem_heap_hi()) break;
-
-//     node* goal = (node*)((char*)cur + Tot);
-//     if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == CODE) {
-//       index = *((size_t*)((char*)goal - SIZE_T_SIZE));
-//       del (goal,index);
-//       Tot += (1<<index);
-//     }
-//     else break;
-//   }
-
-//   for (int i = 0 ; i < NUM_BINS ; i ++ ) {
-//     if ( (Tot & (1<<i)) ) {
-//       ins (p,i);
-//       p = (char*)p + (1<<i);
-//     }
-//   }
-  
-// }
 
 
 // realloc - Implemented simply in terms of malloc and free
