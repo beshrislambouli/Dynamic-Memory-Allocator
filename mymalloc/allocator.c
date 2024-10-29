@@ -83,6 +83,7 @@ int my_init() {
 
 void ins (void* p, int sz) {
   *(size_t*)((char*)p - SIZE_T_SIZE) = sz;
+  *(size_t*)((char*)p + (1<<sz) - 2*SIZE_T_SIZE) = sz;
   *((size_t*)((char*)p - SIZE_T_SIZE) + 1) = CODE ;
   node* new_node = (node*)p;
   new_node->prev = NULL;
@@ -111,7 +112,7 @@ void* my_malloc(size_t size) {
   // We allocate a little bit of extra memory so that we can store the
   // size of the block we've allocated.  Take a look at realloc to see
   // one example of a place where this can come in handy.
-  int aligned_size = ALIGN(size + SIZE_T_SIZE);
+  int aligned_size = ALIGN(size + 2 * SIZE_T_SIZE);
 
   size_t index = 0;
   int power = 1;
@@ -129,6 +130,7 @@ void* my_malloc(size_t size) {
     node* ans = block;
     del (freelists[index],index);
     *(size_t*)((char*)ans - SIZE_T_SIZE) = goal;
+    *(size_t*)((char*)ans + (1<<goal) - 2*SIZE_T_SIZE) = goal;
     
 
     block = ((char*)block + (1<<goal));
@@ -157,6 +159,7 @@ void* my_malloc(size_t size) {
     // We store the size of the block we've allocated in the first
     // SIZE_T_SIZE bytes.
     *(size_t*)p = goal;
+    *(size_t*)((char*)p + (1<<goal) - SIZE_T_SIZE) = goal;
     *((size_t*)p + 1) = 0;
 
     // Then, we return a pointer to the rest of the block of memory,
@@ -172,19 +175,44 @@ void* my_malloc(size_t size) {
 void my_free(void* p) {
   
   node* cur = (node*)p;
-  size_t index = *(size_t*)((char*)cur - SIZE_T_SIZE);
-  int Tot = (1<<index);
-  while (1) {
-    if (((char*)cur + Tot) > mem_heap_hi()) break;
 
-    node* goal = (node*)((char*)cur + Tot);
+
+  size_t index = *(size_t*)((char*)cur - SIZE_T_SIZE);
+  int Tot1 = (1<<index);
+  while (1) {
+    if (((char*)cur + Tot1) > mem_heap_hi()) break;
+
+    node* goal = (node*)((char*)cur + Tot1);
     if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == CODE) {
       index = *((size_t*)((char*)goal - SIZE_T_SIZE));
       del (goal,index);
-      Tot += (1<<index);
+      Tot1 += (1<<index);
     }
     else break;
   }
+
+  int Tot2 = 0 ;
+  while (1) {
+
+    if ( ((char*)cur - Tot2 - 2*SIZE_T_SIZE) < mem_heap_lo () ) break;
+    
+    size_t sz1 = *(size_t*)((char*)cur - Tot2 - 2*SIZE_T_SIZE);
+    node* goal = (node*)((char*)cur - Tot2 - (1<<sz1));
+
+    // if ( *(size_t*)((char*)goal - SIZE_T_SIZE) != sz1) printf ("Wergwerg\n");
+
+    if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == CODE) {
+      size_t sz2 = *((size_t*)((char*)goal - SIZE_T_SIZE));
+      if ( sz2 != sz1 ) printf ("Wergewrg\n");
+      del (goal,sz2);
+      Tot2 += (1<<sz2);
+    }
+    else break;
+
+  }
+
+  int Tot = Tot1 + Tot2;
+  p = (char*)p - Tot2;
 
   for (int i = 0 ; i < NUM_BINS ; i ++ ) {
     if ( (Tot & (1<<i)) ) {
