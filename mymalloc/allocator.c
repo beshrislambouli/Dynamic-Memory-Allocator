@@ -64,6 +64,7 @@ int my_check() {
 
 typedef struct node {
   struct node *next;
+  struct node *prev;
 } node;
 
 struct node *freelists[NUM_BINS];
@@ -99,20 +100,28 @@ void* my_malloc(size_t size) {
   }
 
   if (index < NUM_BINS) {
-    // printf ("here  ewrfgergoerngoierjgioerjg\n");
     node* block = freelists[index];
     freelists[index] = block->next;
     node* ans = NULL;
     
     ans = block;
     *(size_t*)((char*)ans - SIZE_T_SIZE) = goal;
+    *((size_t*)((char*)ans - SIZE_T_SIZE) + 1) = 0 ;
+
     block = ((char*)block + (1<<goal));
 
     for (int i = goal ; i < index ; i ++ ) {
       *(size_t*)((char*)block - SIZE_T_SIZE) = i;
-      node* r = (node*)block;
-      r->next = freelists[i];
-      freelists[i] = r;
+      *((size_t*)((char*)block - SIZE_T_SIZE) + 1) = 1 ;
+
+
+      node* new_node = (node*)block;
+      new_node->prev = NULL;
+      new_node->next = freelists [i];
+      if (freelists [i] != NULL) freelists [i]->prev = new_node;
+      freelists [i] = new_node;
+
+
       block = ((char*)block + (1<<i));
     }
 
@@ -136,6 +145,7 @@ void* my_malloc(size_t size) {
     // We store the size of the block we've allocated in the first
     // SIZE_T_SIZE bytes.
     *(size_t*)p = goal;
+    *((size_t*)p + 1) = 0;
 
     // Then, we return a pointer to the rest of the block of memory,
     // which is at least size bytes long.  We have to cast to uint8_t
@@ -152,31 +162,32 @@ void my_free(void* p) {
   size_t index = *(size_t*)((char*)p - SIZE_T_SIZE);
   
   while (1) {
-    int found = 0;
     node* goal = (node*)((char*)p + (1 << index));
-    node* cur = freelists[index];
-    node* prev = NULL;
-    while (cur != NULL) {
-      if (cur == goal) {
-        if (prev == NULL) {
-          freelists[index] = cur->next;
-        } else {
-          prev->next = cur->next;
-        }
-        index++;
-        found = 1;
-        break;
-      }
-      prev = cur;
-      cur = cur->next;
+    if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == 1 && *((size_t*)((char*)goal - SIZE_T_SIZE)) == index ) {
+
+      *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) = 0;
+
+      if (goal == freelists [index]) freelists [index] = goal -> next;
+
+      if (goal->next != NULL) goal->next->prev = goal->prev;
+
+      if (goal->prev != NULL) goal->prev->next = goal->next;
+
+      index ++;
     }
-    if (!found)
-      break;
+    else break;
   }
+
   *(size_t*)((char*)p - SIZE_T_SIZE) = index;
-  node* r = (node*)p;
-  r->next = freelists[index];
-  freelists[index] = r;
+  *((size_t*)((char*)p - SIZE_T_SIZE) + 1) = 1 ;
+
+
+  node* new_node = (node*)p;
+  new_node->prev = NULL;
+  new_node->next = freelists [index];
+  if (freelists [index] != NULL)
+        freelists [index]->prev = new_node;
+  freelists [index] = new_node;
 }
 
 
