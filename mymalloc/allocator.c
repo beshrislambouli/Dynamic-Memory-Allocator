@@ -40,6 +40,7 @@
 // heap.
 
 #define NUM_BINS 26
+#define CODE 1
 
 int my_check() {
   char* p;
@@ -80,6 +81,30 @@ int my_init() {
   return 0; 
 }
 
+void ins (void* p, int sz) {
+  *(size_t*)((char*)p - SIZE_T_SIZE) = sz;
+  *((size_t*)((char*)p - SIZE_T_SIZE) + 1) = CODE ;
+  node* new_node = (node*)p;
+  new_node->prev = NULL;
+  new_node->next = freelists [sz];
+  if (freelists [sz] != NULL) freelists [sz]->prev = new_node;
+  freelists [sz] = new_node;
+}
+
+void del (node* p, int sz) {
+  if (freelists [sz] == NULL || p == NULL) return;
+
+  *((size_t*)((char*)p - SIZE_T_SIZE) + 1) = 0;
+
+  if (p == freelists [sz]) freelists [sz] = p -> next;
+
+  if (p->next != NULL) p->next->prev = p->prev;
+
+  if (p->prev != NULL) p->prev->next = p->next;
+  p->next = NULL;
+  p->prev = NULL;
+}
+
 //  malloc - Allocate a block by incrementing the brk pointer.
 //  Always allocate a block whose size is a multiple of the alignment.
 void* my_malloc(size_t size) {
@@ -111,17 +136,7 @@ void* my_malloc(size_t size) {
     block = ((char*)block + (1<<goal));
 
     for (int i = goal ; i < index ; i ++ ) {
-      *(size_t*)((char*)block - SIZE_T_SIZE) = i;
-      *((size_t*)((char*)block - SIZE_T_SIZE) + 1) = 1 ;
-
-
-      node* new_node = (node*)block;
-      new_node->prev = NULL;
-      new_node->next = freelists [i];
-      if (freelists [i] != NULL) freelists [i]->prev = new_node;
-      freelists [i] = new_node;
-
-
+      ins ((void*)block,i);
       block = ((char*)block + (1<<i));
     }
 
@@ -162,33 +177,43 @@ void my_free(void* p) {
   size_t index = *(size_t*)((char*)p - SIZE_T_SIZE);
   
   while (1) {
+    if (((char*)p + (1 << index)) > mem_heap_hi()) break;
     node* goal = (node*)((char*)p + (1 << index));
     if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == 1 && *((size_t*)((char*)goal - SIZE_T_SIZE)) == index ) {
-
-      *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) = 0;
-
-      if (goal == freelists [index]) freelists [index] = goal -> next;
-
-      if (goal->next != NULL) goal->next->prev = goal->prev;
-
-      if (goal->prev != NULL) goal->prev->next = goal->next;
-
+      del (goal,index);
       index ++;
     }
     else break;
   }
 
-  *(size_t*)((char*)p - SIZE_T_SIZE) = index;
-  *((size_t*)((char*)p - SIZE_T_SIZE) + 1) = 1 ;
-
-
-  node* new_node = (node*)p;
-  new_node->prev = NULL;
-  new_node->next = freelists [index];
-  if (freelists [index] != NULL)
-        freelists [index]->prev = new_node;
-  freelists [index] = new_node;
+  ins (p,index);
 }
+
+// void my_free(void* p) {
+  
+//   node* cur = (node*)p;
+//   size_t index = *(size_t*)((char*)cur - SIZE_T_SIZE);
+//   int Tot = (1<<index);
+//   while (1) {
+//     if (((char*)cur + Tot) > mem_heap_hi()) break;
+
+//     node* goal = (node*)((char*)cur + Tot);
+//     if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == CODE) {
+//       index = *((size_t*)((char*)goal - SIZE_T_SIZE));
+//       del (goal,index);
+//       Tot += (1<<index);
+//     }
+//     else break;
+//   }
+
+//   for (int i = 0 ; i < NUM_BINS ; i ++ ) {
+//     if ( (Tot & (1<<i)) ) {
+//       ins (p,i);
+//       p = (char*)p + (1<<i);
+//     }
+//   }
+  
+// }
 
 
 // realloc - Implemented simply in terms of malloc and free
