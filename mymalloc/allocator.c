@@ -81,27 +81,48 @@ int my_init() {
   return 0; 
 }
 
+size_t get_idx (int sz) {
+  int n = 0; 
+  while ((1U << n) <= sz) { 
+    n++; 
+  } 
+  return n - 1;
+}
+
 void ins (void* p, int sz) {
+  size_t index = get_idx (sz);
   *(size_t*)((char*)p - SIZE_T_SIZE) = sz;
-  *(size_t*)((char*)p + (1<<sz) - 2*SIZE_T_SIZE) = sz;
+  *(size_t*)((char*)p + sz - 2*SIZE_T_SIZE) = sz;
   *((size_t*)((char*)p - SIZE_T_SIZE) + 1) = CODE ;
   node* new_node = (node*)p;
   new_node->prev = NULL;
-  new_node->next = freelists [sz];
-  if (freelists [sz] != NULL) freelists [sz]->prev = new_node;
-  freelists [sz] = new_node;
+  new_node->next = freelists [index];
+  if (freelists [index] != NULL) freelists [index]->prev = new_node;
+  freelists [index] = new_node;
 }
 
 void del (node* p, int sz) {
-  if (freelists [sz] == NULL || p == NULL) return;
-
+  
+  size_t index = get_idx (sz);
+  
+  if (freelists [index] == NULL || p == NULL) return;
+  
   *((size_t*)((char*)p - SIZE_T_SIZE) + 1) = 0;
-
-  if (p == freelists [sz]) freelists [sz] = p -> next;
-
+  
+  if (p == freelists [index]) freelists [index] = p -> next;
+  
   if (p->next != NULL) p->next->prev = p->prev;
-
-  if (p->prev != NULL) p->prev->next = p->next;
+  
+  if (p->prev != NULL) {
+    // printf ("wererrrr\n");
+    // printf ("%d %ld\n",sz,index);
+    if (p->prev->next==NULL) {
+      // printf ("wergiojweoirgo\n");
+    }
+    // printf ("wererrrr\n");
+    p->prev->next = p->next;
+  }
+  
   p->next = NULL;
   p->prev = NULL;
 }
@@ -109,6 +130,7 @@ void del (node* p, int sz) {
 //  malloc - Allocate a block by incrementing the brk pointer.
 //  Always allocate a block whose size is a multiple of the alignment.
 void* my_malloc(size_t size) {
+  // printf ("start of maloc\n");
   // We allocate a little bit of extra memory so that we can store the
   // size of the block we've allocated.  Take a look at realloc to see
   // one example of a place where this can come in handy.
@@ -120,26 +142,28 @@ void* my_malloc(size_t size) {
     power *= 2;
     index++;
   }
-  size_t goal = index;
   while (index < NUM_BINS && freelists [index] == NULL) {
     index ++;
   }
 
   if (index < NUM_BINS) {
-    node* block = freelists[index];
-    node* ans = block;
-    del (freelists[index],index);
-    *(size_t*)((char*)ans - SIZE_T_SIZE) = goal;
-    *(size_t*)((char*)ans + (1<<goal) - 2*SIZE_T_SIZE) = goal;
-    
+    node* ptr_node = freelists[index];
+    size_t old_size = *(size_t*)((char*)ptr_node - SIZE_T_SIZE);
+    size_t delta = old_size - aligned_size;
+    del (ptr_node,old_size);
+    void* ptr = (void*)ptr_node;
 
-    block = ((char*)block + (1<<goal));
-    for (int i = goal ; i < index ; i ++ ) {
-      ins ((void*)block,i);
-      block = ((char*)block + (1<<i));
+    if (delta > 100) {
+      void* new_ptr = (char*)ptr + aligned_size;
+      *(size_t*)((char*)ptr - SIZE_T_SIZE) = aligned_size;
+      *(size_t*)((char*)new_ptr - SIZE_T_SIZE) = delta;
+      *(size_t*)((char*)new_ptr - 2*SIZE_T_SIZE) = aligned_size;
+      *(size_t*)((char*)ptr + old_size - 2*SIZE_T_SIZE) = delta;
+
+      my_free (new_ptr);
     }
-
-    return (void*)ans;
+    
+    return ptr;
   }
   
   
@@ -149,7 +173,7 @@ void* my_malloc(size_t size) {
   // make sure you don't wind up calling it on every malloc.
 
 
-  void* p = mem_sbrk((1<<goal));
+  void* p = mem_sbrk(aligned_size);
 
   if (p == (void*)-1) {
     // Whoops, an error of some sort occurred.  We return NULL to let
@@ -158,8 +182,8 @@ void* my_malloc(size_t size) {
   } else {
     // We store the size of the block we've allocated in the first
     // SIZE_T_SIZE bytes.
-    *(size_t*)p = goal;
-    *(size_t*)((char*)p + (1<<goal) - SIZE_T_SIZE) = goal;
+    *(size_t*)p = aligned_size;
+    *(size_t*)((char*)p + aligned_size - SIZE_T_SIZE) = aligned_size;
     *((size_t*)p + 1) = 0;
 
     // Then, we return a pointer to the rest of the block of memory,
@@ -168,44 +192,45 @@ void* my_malloc(size_t size) {
     // and so the compiler doesn't know how far to move the pointer.
     // Since a uint8_t is always one byte, adding SIZE_T_SIZE after
     // casting advances the pointer by SIZE_T_SIZE bytes.
+    // printf ("end of maloc\n");
     return (void*)((char*)p + SIZE_T_SIZE);
   }
 }
 
 void my_free(void* p) {
-  
+
   node* cur = (node*)p;
-
-
-  size_t index = *(size_t*)((char*)cur - SIZE_T_SIZE);
-  int Tot1 = (1<<index);
+  size_t sz = *(size_t*)((char*)p - SIZE_T_SIZE);
+  int Tot1 = sz;
   while (1) {
     if (((char*)cur + Tot1) > mem_heap_hi()) break;
-
+    
     node* goal = (node*)((char*)cur + Tot1);
     if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == CODE) {
-      index = *((size_t*)((char*)goal - SIZE_T_SIZE));
-      del (goal,index);
-      Tot1 += (1<<index);
+      
+      sz = *((size_t*)((char*)goal - SIZE_T_SIZE));
+      
+      del (goal,sz);
+      
+      Tot1 += sz;
     }
     else break;
   }
-
+  
   int Tot2 = 0 ;
   while (1) {
 
     if ( ((char*)cur - Tot2 - 2*SIZE_T_SIZE) < mem_heap_lo () ) break;
     
     size_t sz1 = *(size_t*)((char*)cur - Tot2 - 2*SIZE_T_SIZE);
-    node* goal = (node*)((char*)cur - Tot2 - (1<<sz1));
+    node* goal = (node*)((char*)cur - Tot2 - sz1);
 
-    // if ( *(size_t*)((char*)goal - SIZE_T_SIZE) != sz1) printf ("Wergwerg\n");
 
     if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == CODE) {
       size_t sz2 = *((size_t*)((char*)goal - SIZE_T_SIZE));
       if ( sz2 != sz1 ) printf ("Wergewrg\n");
       del (goal,sz2);
-      Tot2 += (1<<sz2);
+      Tot2 += sz2;
     }
     else break;
 
@@ -213,20 +238,31 @@ void my_free(void* p) {
 
   int Tot = Tot1 + Tot2;
   p = (char*)p - Tot2;
-
-  for (int i = 0 ; i < NUM_BINS ; i ++ ) {
-    if ( (Tot & (1<<i)) ) {
-      ins (p,i);
-      p = (char*)p + (1<<i);
-    }
-  }
-  
+  ins ((void*)p,Tot);
 }
 
 
 // realloc - Implemented simply in terms of malloc and free
 void* my_realloc(void* ptr, size_t size) {
   if (!ptr) return my_malloc(size);
+
+  size_t old_size = *(size_t*)((uint8_t*)ptr - SIZE_T_SIZE);
+  size_t new_size = ALIGN(size + 2 * SIZE_T_SIZE);
+  
+  if (old_size >= new_size) {
+    if (old_size == new_size) {
+      return ptr;
+    }
+    size_t delta = old_size - new_size;
+    void* new_ptr = (char*)ptr + new_size;
+    *(size_t*)((char*)new_ptr - SIZE_T_SIZE) = delta;
+    *(size_t*)((char*)new_ptr - 2*SIZE_T_SIZE) = new_size;
+    *(size_t*)((char*)ptr - SIZE_T_SIZE) = new_size;
+    *(size_t*)((char*)ptr + old_size - 2*SIZE_T_SIZE) = delta;
+
+    my_free (new_ptr);
+    return ptr;
+  }
 
   void* newptr;
   size_t copy_size;
