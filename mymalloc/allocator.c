@@ -278,6 +278,19 @@ void* my_realloc(void* ptr, size_t size) {
     return ptr;
   }
 
+  if ( ((char*)ptr + old_size) <= mem_heap_hi() ) { 
+
+    node* goal = (node*)((char*)ptr + old_size);
+    int next_sz = *(int*)h(goal);
+    int is_free = *(int*)(f(goal,next_sz));
+    if ( is_free > 0 && old_size + next_sz >= new_size ) {
+      del (goal,next_sz);
+      *(int*)h(ptr) = old_size + next_sz;
+      return ptr;
+    }
+  }
+
+
   void* newptr;
   int copy_size;
 
