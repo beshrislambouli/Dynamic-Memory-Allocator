@@ -125,6 +125,32 @@ void del (node* p, int sz) {
   p->prev = NULL;
 }
 
+node* best_fit (int sz) {
+  int index = get_idx (sz);
+  node* ptr_node = NULL;
+  while (index<NUM_BINS) {
+    if (freelists [index]==NULL) {
+      index ++;
+      continue;
+    }
+
+    node* cur= freelists [index];
+    int mn = (1<<30);
+    while (cur != NULL) {
+      int cur_sz = *(int*)h(cur);
+      if (cur_sz >= sz && cur_sz < mn) {
+        mn = cur_sz;
+        ptr_node = cur;
+      }
+      cur = cur->next;
+    }
+    if (ptr_node) break;
+    index ++;
+  }
+  return ptr_node;
+}
+
+
 //  malloc - Allocate a block by incrementing the brk pointer.
 //  Always allocate a block whose size is a multiple of the alignment.
 void* my_malloc(size_t size) {
@@ -135,19 +161,10 @@ void* my_malloc(size_t size) {
   // one example of a place where this can come in handy.
   int aligned_size = ALIGN(size + 2 * SIZE_T_SIZE);
   if (aligned_size < MIN_BLOCK ) aligned_size = MIN_BLOCK;
-  // printf ("%ld\n",aligned_size);
-  int index = 0;
-  int power = 1;
-  while (power < aligned_size) {
-    power *= 2;
-    index++;
-  }
-  while (index < NUM_BINS && freelists [index] == NULL) {
-    index ++;
-  }
-  // printf ("%ld\n",index);
-  if (index < NUM_BINS) {
-    node* ptr_node = freelists[index];
+
+
+  node* ptr_node = best_fit (aligned_size);
+  if (ptr_node) {
     int old_size = *(int*)h(ptr_node);
     int delta = old_size - aligned_size;
     del (ptr_node,old_size);
@@ -164,7 +181,7 @@ void* my_malloc(size_t size) {
 
       my_free (new_ptr);
     }
-    // printf ("end malloc");
+
     return ptr;
   }
   
@@ -199,6 +216,7 @@ void* my_malloc(size_t size) {
 }
 
 void my_free(void* p) {
+  if (p == NULL) return ;
   // printf ("my_Free in\n");
 
   node* cur = (node*)p;
@@ -227,13 +245,6 @@ void my_free(void* p) {
       del(goal,sz2);
       Tot2 += sz2;
     }
-    // node* goal = (node*)((char*)cur - Tot2 - sz1);
-    // if ( *(size_t*)h_fr(goal) == CODE) {
-    //   size_t sz2 = *(size_t*)h_sz(goal);
-    //   if ( sz2 != sz1 ) printf ("Wergewrg\n");
-    //   del (goal,sz2);
-    //   Tot2 += sz2;
-    // }
   }
 
   int Tot = Tot1 + Tot2;
