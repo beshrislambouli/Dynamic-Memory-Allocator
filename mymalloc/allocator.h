@@ -41,6 +41,6 @@
 #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~(ALIGNMENT - 1))
 
 // The smallest aligned size that will hold a size_t value.
-#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
-
+// #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+#define SIZE_T_SIZE 4
 #endif  // MM_ALLOCATOR_H

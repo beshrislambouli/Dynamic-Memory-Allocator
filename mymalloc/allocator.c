@@ -70,6 +70,9 @@ typedef struct node {
 
 struct node *freelists[NUM_BINS];
 
+#define h(p) ((void*)((char*)p - SIZE_T_SIZE))
+#define f(p,sz) ((void*)((char*)p + sz - 2*SIZE_T_SIZE))
+#define MIN_BLOCK 32
 
 // init - Initialize the malloc package.  Called once before any other
 // calls are made.  Since this is a very simple implementation, we just
@@ -78,10 +81,11 @@ int my_init() {
   for (int i = 0; i < NUM_BINS; i++) {
     freelists[i] = NULL;
   }
+  mem_sbrk (12);
   return 0; 
 }
 
-size_t get_idx (int sz) {
+int get_idx (int sz) {
   int n = 0; 
   while ((1U << n) <= sz) { 
     n++; 
@@ -90,10 +94,11 @@ size_t get_idx (int sz) {
 }
 
 void ins (void* p, int sz) {
-  size_t index = get_idx (sz);
-  *(size_t*)((char*)p - SIZE_T_SIZE) = sz;
-  *(size_t*)((char*)p + sz - 2*SIZE_T_SIZE) = sz;
-  *((size_t*)((char*)p - SIZE_T_SIZE) + 1) = CODE ;
+
+  int index = get_idx (sz);
+  *(int*)h(p) = sz;
+  *(int*)f(p,sz) = sz;
+
   node* new_node = (node*)p;
   new_node->prev = NULL;
   new_node->next = freelists [index];
@@ -103,25 +108,18 @@ void ins (void* p, int sz) {
 
 void del (node* p, int sz) {
   
-  size_t index = get_idx (sz);
+  int index = get_idx (sz);
   
   if (freelists [index] == NULL || p == NULL) return;
   
-  *((size_t*)((char*)p - SIZE_T_SIZE) + 1) = 0;
+  *(int*)f(p,sz) = -1;
+  
   
   if (p == freelists [index]) freelists [index] = p -> next;
   
   if (p->next != NULL) p->next->prev = p->prev;
   
-  if (p->prev != NULL) {
-    // printf ("wererrrr\n");
-    // printf ("%d %ld\n",sz,index);
-    if (p->prev->next==NULL) {
-      // printf ("wergiojweoirgo\n");
-    }
-    // printf ("wererrrr\n");
-    p->prev->next = p->next;
-  }
+  if (p->prev != NULL) p->prev->next = p->next;
   
   p->next = NULL;
   p->prev = NULL;
@@ -131,12 +129,14 @@ void del (node* p, int sz) {
 //  Always allocate a block whose size is a multiple of the alignment.
 void* my_malloc(size_t size) {
   // printf ("start of maloc\n");
+  // printf ("%ld\n",size);
   // We allocate a little bit of extra memory so that we can store the
   // size of the block we've allocated.  Take a look at realloc to see
   // one example of a place where this can come in handy.
   int aligned_size = ALIGN(size + 2 * SIZE_T_SIZE);
-
-  size_t index = 0;
+  if (aligned_size < MIN_BLOCK ) aligned_size = MIN_BLOCK;
+  // printf ("%ld\n",aligned_size);
+  int index = 0;
   int power = 1;
   while (power < aligned_size) {
     power *= 2;
@@ -145,24 +145,26 @@ void* my_malloc(size_t size) {
   while (index < NUM_BINS && freelists [index] == NULL) {
     index ++;
   }
-
+  // printf ("%ld\n",index);
   if (index < NUM_BINS) {
     node* ptr_node = freelists[index];
-    size_t old_size = *(size_t*)((char*)ptr_node - SIZE_T_SIZE);
-    size_t delta = old_size - aligned_size;
+    int old_size = *(int*)h(ptr_node);
+    int delta = old_size - aligned_size;
     del (ptr_node,old_size);
     void* ptr = (void*)ptr_node;
 
-    if (delta > 100) {
+    if (delta >= MIN_BLOCK) {
       void* new_ptr = (char*)ptr + aligned_size;
-      *(size_t*)((char*)ptr - SIZE_T_SIZE) = aligned_size;
-      *(size_t*)((char*)new_ptr - SIZE_T_SIZE) = delta;
-      *(size_t*)((char*)new_ptr - 2*SIZE_T_SIZE) = aligned_size;
-      *(size_t*)((char*)ptr + old_size - 2*SIZE_T_SIZE) = delta;
+
+      *(int*)h(ptr) = aligned_size;
+      *(int*)f(ptr,aligned_size) = -1;
+
+      *(int*)h(new_ptr) = delta;
+      *(int*)f(ptr,old_size) = -1;
 
       my_free (new_ptr);
     }
-    
+    // printf ("end malloc");
     return ptr;
   }
   
@@ -182,9 +184,8 @@ void* my_malloc(size_t size) {
   } else {
     // We store the size of the block we've allocated in the first
     // SIZE_T_SIZE bytes.
-    *(size_t*)p = aligned_size;
-    *(size_t*)((char*)p + aligned_size - SIZE_T_SIZE) = aligned_size;
-    *((size_t*)p + 1) = 0;
+    *(int*)p = aligned_size;
+    *(int*)((char*)p + aligned_size - SIZE_T_SIZE) = -1;
 
     // Then, we return a pointer to the rest of the block of memory,
     // which is at least size bytes long.  We have to cast to uint8_t
@@ -198,47 +199,47 @@ void* my_malloc(size_t size) {
 }
 
 void my_free(void* p) {
+  // printf ("my_Free in\n");
 
   node* cur = (node*)p;
-  size_t sz = *(size_t*)((char*)p - SIZE_T_SIZE);
+  int sz = *(int*)h(p);
   int Tot1 = sz;
-  while (1) {
-    if (((char*)cur + Tot1) > mem_heap_hi()) break;
-    
+
+  if (((char*)cur + Tot1) <= mem_heap_hi()){ 
     node* goal = (node*)((char*)cur + Tot1);
-    if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == CODE) {
-      
-      sz = *((size_t*)((char*)goal - SIZE_T_SIZE));
-      
+    sz = *(int*)h(goal);
+    int is_free = *(int*)(f(goal,sz));
+    if ( is_free > 0) {      
       del (goal,sz);
-      
       Tot1 += sz;
     }
-    else break;
+  
   }
   
   int Tot2 = 0 ;
-  while (1) {
-
-    if ( ((char*)cur - Tot2 - 2*SIZE_T_SIZE) < mem_heap_lo () ) break;
-    
-    size_t sz1 = *(size_t*)((char*)cur - Tot2 - 2*SIZE_T_SIZE);
-    node* goal = (node*)((char*)cur - Tot2 - sz1);
-
-
-    if ( *((size_t*)((char*)goal - SIZE_T_SIZE) + 1) == CODE) {
-      size_t sz2 = *((size_t*)((char*)goal - SIZE_T_SIZE));
-      if ( sz2 != sz1 ) printf ("Wergewrg\n");
-      del (goal,sz2);
+  
+  if ( ((char*)cur - Tot2 - 2*SIZE_T_SIZE) >= mem_heap_lo () ) {
+    int is_free = *(int*)((char*)cur - Tot2 - 2*SIZE_T_SIZE);
+    if ( is_free > 0 ) {
+      node* goal = (node*)((char*)cur - Tot2 - is_free);
+      int sz2 = *(int*)h(goal);
+      if (sz2 != is_free) printf ("wergerg\n");
+      del(goal,sz2);
       Tot2 += sz2;
     }
-    else break;
-
+    // node* goal = (node*)((char*)cur - Tot2 - sz1);
+    // if ( *(size_t*)h_fr(goal) == CODE) {
+    //   size_t sz2 = *(size_t*)h_sz(goal);
+    //   if ( sz2 != sz1 ) printf ("Wergewrg\n");
+    //   del (goal,sz2);
+    //   Tot2 += sz2;
+    // }
   }
 
   int Tot = Tot1 + Tot2;
   p = (char*)p - Tot2;
   ins ((void*)p,Tot);
+  // printf ("my_free out\n");
 }
 
 
@@ -246,26 +247,28 @@ void my_free(void* p) {
 void* my_realloc(void* ptr, size_t size) {
   if (!ptr) return my_malloc(size);
 
-  size_t old_size = *(size_t*)((uint8_t*)ptr - SIZE_T_SIZE);
-  size_t new_size = ALIGN(size + 2 * SIZE_T_SIZE);
+  int old_size = *(int*)h(ptr);
+  int new_size = ALIGN(size + 2 * SIZE_T_SIZE);
   
   if (old_size >= new_size) {
-    if (old_size == new_size) {
-      return ptr;
-    }
-    size_t delta = old_size - new_size;
+    int delta = old_size - new_size;
+    if (delta < MIN_BLOCK) return ptr;
+
     void* new_ptr = (char*)ptr + new_size;
-    *(size_t*)((char*)new_ptr - SIZE_T_SIZE) = delta;
-    *(size_t*)((char*)new_ptr - 2*SIZE_T_SIZE) = new_size;
-    *(size_t*)((char*)ptr - SIZE_T_SIZE) = new_size;
-    *(size_t*)((char*)ptr + old_size - 2*SIZE_T_SIZE) = delta;
+
+    *(int*)h(new_ptr) = delta;
+    *(int*)f(ptr,old_size) = -1;
+
+    *(int*)h(ptr) = new_size;
+    *(int*)f(ptr,new_size) = -1;
+    
 
     my_free (new_ptr);
     return ptr;
   }
 
   void* newptr;
-  size_t copy_size;
+  int copy_size;
 
   // Allocate a new chunk of memory, and fail if that allocation fails.
   newptr = my_malloc(size);
@@ -277,7 +280,7 @@ void* my_realloc(void* ptr, size_t size) {
   // where we stashed this in the SIZE_T_SIZE bytes directly before the
   // address we returned.  Now we can back up by that many bytes and read
   // the size.
-  copy_size = *(size_t*)((uint8_t*)ptr - SIZE_T_SIZE);
+  copy_size = *(int*)h(ptr);
 
   // If the new block is smaller than the old one, we have to stop copying
   // early so that we don't write off the end of the new block of memory.
