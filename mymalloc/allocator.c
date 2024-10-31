@@ -40,7 +40,6 @@
 // heap.
 
 #define NUM_BINS 27
-#define CODE 1
 
 int my_check() {
   char* p;
@@ -141,6 +140,7 @@ node* best_fit (int sz) {
       if (cur_sz >= sz && cur_sz < mn) {
         mn = cur_sz;
         ptr_node = cur;
+        if (mn == (1<<index)) break;
       }
       cur = cur->next;
     }
@@ -241,7 +241,7 @@ void my_free(void* p) {
     if ( is_free > 0 ) {
       node* goal = (node*)((char*)cur - Tot2 - is_free);
       int sz2 = *(int*)h(goal);
-      if (sz2 != is_free) printf ("wergerg\n");
+      //if (sz2 != is_free) printf ("wergerg\n");
       del(goal,sz2);
       Tot2 += sz2;
     }
@@ -285,7 +285,21 @@ void* my_realloc(void* ptr, size_t size) {
     int is_free = *(int*)(f(goal,next_sz));
     if ( is_free > 0 && old_size + next_sz >= new_size ) {
       del (goal,next_sz);
-      *(int*)h(ptr) = old_size + next_sz;
+      int delta = (old_size + next_sz) - new_size;
+      if (delta < MIN_BLOCK) {
+        *(int*)h(ptr) = old_size + next_sz;
+        return ptr;
+      }
+
+      void* new_ptr = (char*)ptr + new_size;
+
+      *(int*)h(new_ptr) = delta;
+      *(int*)f(ptr,old_size) = -1;
+
+      *(int*)h(ptr) = new_size;
+      *(int*)f(ptr,new_size) = -1;
+
+      my_free(new_ptr);
       return ptr;
     }
   }
