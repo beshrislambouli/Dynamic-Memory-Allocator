@@ -332,6 +332,15 @@ void* my_realloc(void* ptr, size_t size) {
       my_free(new_ptr);
       return ptr;
     }
+    if (is_free > 0 && goal == last) {
+      last = ptr;
+      del (goal, next_sz);
+      int delta = new_size - (old_size + next_sz);
+      mem_sbrk(delta);
+      *(int*)h(ptr) = new_size;
+      *(int*)f(ptr, new_size) = -1;
+      return ptr;
+    }
   }
 
   //printf ("start of realloc\n");
