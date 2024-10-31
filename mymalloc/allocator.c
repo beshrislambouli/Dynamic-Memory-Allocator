@@ -69,6 +69,8 @@ typedef struct node {
 
 struct node *freelists[NUM_BINS];
 
+void* last;
+
 #define h(p) ((void*)((char*)p - SIZE_T_SIZE))
 #define f(p,sz) ((void*)((char*)p + sz - 2*SIZE_T_SIZE))
 #define MIN_BLOCK 32
@@ -81,6 +83,7 @@ int my_init() {
     freelists[i] = NULL;
   }
   mem_sbrk (12);
+  last = NULL;
   return 0; 
 }
 
@@ -110,16 +113,14 @@ void del (node* p, int sz) {
   int index = get_idx (sz);
   
   if (freelists [index] == NULL || p == NULL) return;
-  
+
   *(int*)f(p,sz) = -1;
   
-  
   if (p == freelists [index]) freelists [index] = p -> next;
-  
+
   if (p->next != NULL) p->next->prev = p->prev;
-  
+
   if (p->prev != NULL) p->prev->next = p->next;
-  
   p->next = NULL;
   p->prev = NULL;
 }
@@ -150,26 +151,49 @@ node* best_fit (int sz) {
   return ptr_node;
 }
 
+void* normal_sbrk (int aligned_size) {
+  void* p = mem_sbrk(aligned_size);
+  
+  if (p == (void*)-1) {
+    return NULL;
+  } else {
+    last = (void*)((char*)p + SIZE_T_SIZE);
 
+    *(int*)p = aligned_size;
+    *(int*)((char*)p + aligned_size - SIZE_T_SIZE) = -1;
+    return (void*)((char*)p + SIZE_T_SIZE);
+  }
+}
+
+void* new_sbrk (int aligned_size) {
+  int sz = *(int*)h(last);
+  del (last,sz);
+  int delta = aligned_size - sz;
+  void* p = mem_sbrk(delta);
+
+  *(int*)h(last) = aligned_size;
+  *(int*)f(last,aligned_size) = -1;
+  return last;
+}
 //  malloc - Allocate a block by incrementing the brk pointer.
 //  Always allocate a block whose size is a multiple of the alignment.
 void* my_malloc(size_t size) {
   // printf ("start of maloc\n");
-  // printf ("%ld\n",size);
+  //printf ("%ld\n",size);
   // We allocate a little bit of extra memory so that we can store the
   // size of the block we've allocated.  Take a look at realloc to see
   // one example of a place where this can come in handy.
   int aligned_size = ALIGN(size + 2 * SIZE_T_SIZE);
   if (aligned_size < MIN_BLOCK ) aligned_size = MIN_BLOCK;
 
-
+  //printf("a\n");
   node* ptr_node = best_fit (aligned_size);
   if (ptr_node) {
     int old_size = *(int*)h(ptr_node);
     int delta = old_size - aligned_size;
     del (ptr_node,old_size);
     void* ptr = (void*)ptr_node;
-
+    //printf("b\n");
     if (delta >= MIN_BLOCK) {
       void* new_ptr = (char*)ptr + aligned_size;
 
@@ -178,56 +202,54 @@ void* my_malloc(size_t size) {
 
       *(int*)h(new_ptr) = delta;
       *(int*)f(ptr,old_size) = -1;
-
+      //printf("c\n");
       my_free (new_ptr);
     }
-
+    // printf ("b ");
     return ptr;
   }
-  
+  //printf("e\n");
   
 
   // Expands the heap by the given number of bytes and returns a pointer to
   // the newly-allocated area.  This is a slow call, so you will want to
   // make sure you don't wind up calling it on every malloc.
 
-
-  void* p = mem_sbrk(aligned_size);
-
-  if (p == (void*)-1) {
-    // Whoops, an error of some sort occurred.  We return NULL to let
-    // the client code know that we weren't able to allocate memory.
-    return NULL;
-  } else {
-    // We store the size of the block we've allocated in the first
-    // SIZE_T_SIZE bytes.
-    *(int*)p = aligned_size;
-    *(int*)((char*)p + aligned_size - SIZE_T_SIZE) = -1;
-
-    // Then, we return a pointer to the rest of the block of memory,
-    // which is at least size bytes long.  We have to cast to uint8_t
-    // before we try any pointer arithmetic because voids have no size
-    // and so the compiler doesn't know how far to move the pointer.
-    // Since a uint8_t is always one byte, adding SIZE_T_SIZE after
-    // casting advances the pointer by SIZE_T_SIZE bytes.
-    // printf ("end of maloc\n");
-    return (void*)((char*)p + SIZE_T_SIZE);
+  if (last == NULL) {
+    // printf ("a ");
+    return normal_sbrk (aligned_size);
   }
+  else {
+    //printf("f\n");
+    int sz = *(int*)h(last);
+    //printf ("%d ",sz);
+    int is_free = *(int*)f(last,sz);
+    if (is_free>0) {
+      // printf("a");
+      //printf("g\n");
+      return new_sbrk (aligned_size);
+    } 
+    else return normal_sbrk (aligned_size);
+  }
+  
 }
 
 void my_free(void* p) {
   if (p == NULL) return ;
+  if ( (uint64_t) p > (uint64_t)last) last = p ;
   // printf ("my_Free in\n");
 
   node* cur = (node*)p;
   int sz = *(int*)h(p);
   int Tot1 = sz;
+  int flag_last = (p == last);
 
   if (((char*)cur + Tot1) <= mem_heap_hi()){ 
     node* goal = (node*)((char*)cur + Tot1);
     sz = *(int*)h(goal);
     int is_free = *(int*)(f(goal,sz));
     if ( is_free > 0) {      
+      if (goal == last) flag_last = 1;
       del (goal,sz);
       Tot1 += sz;
     }
@@ -249,6 +271,7 @@ void my_free(void* p) {
 
   int Tot = Tot1 + Tot2;
   p = (char*)p - Tot2;
+  if (flag_last) last = p;
   ins ((void*)p,Tot);
   // printf ("my_free out\n");
 }
@@ -277,13 +300,20 @@ void* my_realloc(void* ptr, size_t size) {
     my_free (new_ptr);
     return ptr;
   }
-
+  if (ptr == last) {
+    int delta = new_size - old_size;
+    mem_sbrk(delta);
+    *(int*)h(ptr) = new_size;
+    *(int*)f(ptr,new_size) = -1;
+    return ptr;
+  }
   if ( ((char*)ptr + old_size) <= mem_heap_hi() ) { 
 
     node* goal = (node*)((char*)ptr + old_size);
     int next_sz = *(int*)h(goal);
     int is_free = *(int*)(f(goal,next_sz));
     if ( is_free > 0 && old_size + next_sz >= new_size ) {
+      if (goal == last) last = ptr;
       del (goal,next_sz);
       int delta = (old_size + next_sz) - new_size;
       if (delta < MIN_BLOCK) {
@@ -304,11 +334,12 @@ void* my_realloc(void* ptr, size_t size) {
     }
   }
 
-
+  //printf ("start of realloc\n");
   void* newptr;
   int copy_size;
 
   // Allocate a new chunk of memory, and fail if that allocation fails.
+  //printf ("%ld\n",size);
   newptr = my_malloc(size);
   if (NULL == newptr) {
     return NULL;
@@ -333,5 +364,6 @@ void* my_realloc(void* ptr, size_t size) {
   my_free(ptr);
 
   // Return a pointer to the new block.
+  //printf ("end of realloc\n");
   return newptr;
 }
