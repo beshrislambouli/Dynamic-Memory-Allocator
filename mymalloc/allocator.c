@@ -74,7 +74,7 @@ void* last;
 #define h(p) ((void*)((char*)p - SIZE_T_SIZE))
 #define f(p,sz) ((void*)((char*)p + sz - 2*SIZE_T_SIZE))
 #define MIN_BLOCK 32
-
+#define PERFECT_SIZE (1<<12)
 // init - Initialize the malloc package.  Called once before any other
 // calls are made.  Since this is a very simple implementation, we just
 // return success.
@@ -214,6 +214,28 @@ void* my_malloc(size_t size) {
   // Expands the heap by the given number of bytes and returns a pointer to
   // the newly-allocated area.  This is a slow call, so you will want to
   // make sure you don't wind up calling it on every malloc.
+  // int to_size = aligned_size;
+  // if (to_size < 320) to_size = 320;
+  // if (last_alloc == aligned_size && aligned_size <= PERFECT_SIZE) {
+  //   int delta = PERFECT_SIZE - aligned_size;
+  //   void* ptr = normal_sbrk (PERFECT_SIZE);
+  //   if (delta >= MIN_BLOCK) {
+  //     void* new_ptr = (char*)ptr + aligned_size;
+  //     last = new_ptr;
+  //     *(int*)h(ptr) = aligned_size;
+  //     *(int*)f(ptr,aligned_size) = -1;
+  //     *(int*)h(new_ptr) = delta;
+  //     *(int*)f(ptr,PERFECT_SIZE) = -1;
+  //     my_free (new_ptr);
+  //   }
+  //   return ptr;
+  // }
+  if (aligned_size <= PERFECT_SIZE) {
+    void* ptr = normal_sbrk (PERFECT_SIZE);
+    my_free (ptr);
+    return my_malloc (size);
+  }
+  
 
   if (last == NULL) {
     // printf ("a ");
