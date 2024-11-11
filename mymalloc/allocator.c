@@ -69,20 +69,22 @@ typedef struct node {
 
 struct node *freelists[NUM_BINS];
 
-void* last;
+void* last; // pointer to current last block in our heap
 
+// given pointer to block starting after header, returns pointer to where the header starts
 #define h(p) ((void*)((char*)p - SIZE_T_SIZE))
+
+// given pointer to block starting after header, returns pointer to where the footer starts
 #define f(p,sz) ((void*)((char*)p + sz - 2*SIZE_T_SIZE))
+
 #define MIN_BLOCK 32
 #define PERFECT_SIZE (1<<12)
-// init - Initialize the malloc package.  Called once before any other
-// calls are made.  Since this is a very simple implementation, we just
-// return success.
+
 int my_init() {
   for (int i = 0; i < NUM_BINS; i++) {
     freelists[i] = NULL;
   }
-  mem_sbrk (12);
+  mem_sbrk (12); // sbrk 12 at the start so we can use a header size of 4 and still have 16-alignment
   last = NULL;
   return 0; 
 }
@@ -95,6 +97,7 @@ int get_idx (int sz) {
   return n - 1;
 }
 
+// insert new node at the start of free list
 void ins (void* p, int sz) {
 
   int index = get_idx (sz);
@@ -108,6 +111,7 @@ void ins (void* p, int sz) {
   freelists [index] = new_node;
 }
 
+// delete node from free list
 void del (node* p, int sz) {
   
   int index = get_idx (sz);
@@ -125,6 +129,9 @@ void del (node* p, int sz) {
   p->prev = NULL;
 }
 
+// given an aligned_size requested in malloc, return a node from a free list
+// first checks bin below and finds the minimum one thats bigger than the requested size
+// then checks next bigger bin and just gives first block
 node* best_fit (int sz) {
   int index = get_idx (sz);
   node* ptr_node = NULL;
@@ -165,6 +172,7 @@ void* normal_sbrk (int aligned_size) {
   }
 }
 
+// if last block in heap is free, expand that block rather than sbrk'ing the full requested size
 void* new_sbrk (int aligned_size) {
   int sz = *(int*)h(last);
   del (last,sz);
@@ -178,23 +186,19 @@ void* new_sbrk (int aligned_size) {
 //  malloc - Allocate a block by incrementing the brk pointer.
 //  Always allocate a block whose size is a multiple of the alignment.
 void* my_malloc(size_t size) {
-  // printf ("start of maloc\n");
-  //printf ("%ld\n",size);
-  // We allocate a little bit of extra memory so that we can store the
-  // size of the block we've allocated.  Take a look at realloc to see
-  // one example of a place where this can come in handy.
+
   int aligned_size = ALIGN(size + 2 * SIZE_T_SIZE);
   if (aligned_size < MIN_BLOCK ) aligned_size = MIN_BLOCK;
 
-  //printf("a\n");
   node* ptr_node = best_fit (aligned_size);
   if (ptr_node) {
     int old_size = *(int*)h(ptr_node);
     int delta = old_size - aligned_size;
     del (ptr_node,old_size);
     void* ptr = (void*)ptr_node;
-    //printf("b\n");
+
     if (delta >= MIN_BLOCK) {
+      // split the block we found and free the extra portion
       void* new_ptr = (char*)ptr + aligned_size;
 
       *(int*)h(ptr) = aligned_size;
@@ -202,34 +206,14 @@ void* my_malloc(size_t size) {
 
       *(int*)h(new_ptr) = delta;
       *(int*)f(ptr,old_size) = -1;
-      //printf("c\n");
+
       my_free (new_ptr);
     }
-    // printf ("b ");
+
     return ptr;
   }
-  //printf("e\n");
-  
 
-  // Expands the heap by the given number of bytes and returns a pointer to
-  // the newly-allocated area.  This is a slow call, so you will want to
-  // make sure you don't wind up calling it on every malloc.
-  // int to_size = aligned_size;
-  // if (to_size < 320) to_size = 320;
-  // if (last_alloc == aligned_size && aligned_size <= PERFECT_SIZE) {
-  //   int delta = PERFECT_SIZE - aligned_size;
-  //   void* ptr = normal_sbrk (PERFECT_SIZE);
-  //   if (delta >= MIN_BLOCK) {
-  //     void* new_ptr = (char*)ptr + aligned_size;
-  //     last = new_ptr;
-  //     *(int*)h(ptr) = aligned_size;
-  //     *(int*)f(ptr,aligned_size) = -1;
-  //     *(int*)h(new_ptr) = delta;
-  //     *(int*)f(ptr,PERFECT_SIZE) = -1;
-  //     my_free (new_ptr);
-  //   }
-  //   return ptr;
-  // }
+  // round up amount we sbrk to 4096 to avoid repeated small sbrk calls
   if (aligned_size <= PERFECT_SIZE) {
     void* ptr = normal_sbrk (PERFECT_SIZE);
     my_free (ptr);
@@ -266,6 +250,7 @@ void my_free(void* p) {
   int Tot1 = sz;
   int flag_last = (p == last);
 
+  // forward coalescing 
   if (((char*)cur + Tot1) <= mem_heap_hi()){ 
     node* goal = (node*)((char*)cur + Tot1);
     sz = *(int*)h(goal);
@@ -280,6 +265,7 @@ void my_free(void* p) {
   
   int Tot2 = 0 ;
   
+  // backward coalescing
   if ( ((char*)cur - Tot2 - 2*SIZE_T_SIZE) >= mem_heap_lo () ) {
     int is_free = *(int*)((char*)cur - Tot2 - 2*SIZE_T_SIZE);
     if ( is_free > 0 ) {
@@ -299,7 +285,6 @@ void my_free(void* p) {
 }
 
 
-// realloc - Implemented simply in terms of malloc and free
 void* my_realloc(void* ptr, size_t size) {
   if (!ptr) return my_malloc(size);
 
@@ -307,9 +292,10 @@ void* my_realloc(void* ptr, size_t size) {
   int new_size = ALIGN(size + 2 * SIZE_T_SIZE);
   
   if (old_size >= new_size) {
+    // dont malloc anything new, just shorten given block
     int delta = old_size - new_size;
     if (delta < MIN_BLOCK) return ptr;
-
+    // if newly free portion is big enough, put it in free list
     void* new_ptr = (char*)ptr + new_size;
 
     *(int*)h(new_ptr) = delta;
@@ -323,6 +309,7 @@ void* my_realloc(void* ptr, size_t size) {
     return ptr;
   }
   if (ptr == last) {
+    // if we are reallocing the last block in our heap, just expand heap size by delta
     int delta = new_size - old_size;
     mem_sbrk(delta);
     *(int*)h(ptr) = new_size;
@@ -330,7 +317,7 @@ void* my_realloc(void* ptr, size_t size) {
     return ptr;
   }
   if ( ((char*)ptr + old_size) <= mem_heap_hi() ) { 
-
+    // check if the block to the right of ptr is free, try to combine two blocks instead of mallocing new block
     node* goal = (node*)((char*)ptr + old_size);
     int next_sz = *(int*)h(goal);
     int is_free = *(int*)(f(goal,next_sz));
@@ -342,7 +329,7 @@ void* my_realloc(void* ptr, size_t size) {
         *(int*)h(ptr) = old_size + next_sz;
         return ptr;
       }
-
+      // when combining the two blocks, free extra portion if its big enough
       void* new_ptr = (char*)ptr + new_size;
 
       *(int*)h(new_ptr) = delta;
@@ -355,6 +342,9 @@ void* my_realloc(void* ptr, size_t size) {
       return ptr;
     }
     if (is_free > 0 && goal == last) {
+      // if we looked to the right and it was free but not big enough,
+      // and that block to the right is the last block
+      // mem_sbrk that last block by the missing amount
       last = ptr;
       del (goal, next_sz);
       int delta = new_size - (old_size + next_sz);
@@ -365,12 +355,10 @@ void* my_realloc(void* ptr, size_t size) {
     }
   }
 
-  //printf ("start of realloc\n");
   void* newptr;
   int copy_size;
 
   // Allocate a new chunk of memory, and fail if that allocation fails.
-  //printf ("%ld\n",size);
   newptr = my_malloc(size);
   if (NULL == newptr) {
     return NULL;
@@ -395,6 +383,5 @@ void* my_realloc(void* ptr, size_t size) {
   my_free(ptr);
 
   // Return a pointer to the new block.
-  //printf ("end of realloc\n");
   return newptr;
 }
