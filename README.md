@@ -13,7 +13,7 @@ A lightweight, high-performance dynamic memory allocator implementing `malloc`, 
 
 ## Performance
 
-- Achieved **98% memory utilization** and **98% throughput** relative to the C standard library.
+- Achieved **98% memory utilization** and **throughput** relative to the C standard library.
 - Coalescing and best-fit search strategies reduced external fragmentation.
 - Alignment and block reuse boosted cache efficiency and increased allocator throughput by **30%**.
 
