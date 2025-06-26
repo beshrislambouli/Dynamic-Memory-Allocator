@@ -1,4 +1,4 @@
-# Custom Memory Allocator
+# Dynamic Memory Allocator
 
 A lightweight, high-performance dynamic memory allocator implementing `malloc`, `free`, and `realloc` with support for first-fit and best-fit allocation strategies. Built using segregated free lists, boundary tags, and coalescing to minimize fragmentation and maximize performance.
 
